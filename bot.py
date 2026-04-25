@@ -44,7 +44,7 @@ async def cmd_start(message: types.Message):
         )
     ]])
     await message.answer(
-        "👋 Привет! Добро пожаловать в Orange Market.\n\nЖми кнопку ниже чтобы посмотреть каталог 👇",
+        " 👋 Wuzzzuuuppp! Welcome to Orange Market, тут продаются шмотки по адекватным ценам.\n\nЖми кнопку ниже чтобы посмотреть каталог 👇",
         reply_markup=kb
     )
 
