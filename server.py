@@ -1,25 +1,26 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import sqlite3
 import json
 import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
 CORS(app)
 
-DB_PATH = 'items.db'
+DATABASE_URL = os.environ.get('DATABASE_URL')
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN', 'orange_admin_secret')
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 def init_db():
     conn = get_db()
-    conn.execute('''
+    cur = conn.cursor()
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             brand TEXT NOT NULL,
             name TEXT NOT NULL,
             cat TEXT NOT NULL,
@@ -34,18 +35,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    count = conn.execute('SELECT COUNT(*) FROM items').fetchone()[0]
-    if count == 0:
-        demo = [
-            ('Nike', 'Air Force 1 Low', 'shoes', '42', 11500, 0, 8, 'Куплены год назад, носились редко.', '👟', '[]', 0),
-            ('Adidas', 'Yeezy Boost 350', 'shoes', '41', 24000, 0, 9, 'В отличном состоянии, одевали раза 4.', '👟', '[]', 0),
-            ('Supreme', 'Box Logo Tee', 'clothes', 'L', 15000, 0, 10, 'Ни разу не одевалась.', '👕', '[]', 0),
-        ]
-        conn.executemany('INSERT INTO items (brand,name,cat,size,price,price_usd,cond,desc,emoji,photos,sold) VALUES (?,?,?,?,?,?,?,?,?,?,?)', demo)
     conn.commit()
+    cur.close()
     conn.close()
 
-# Инициализируем БД при загрузке модуля — работает и с gunicorn
 init_db()
 
 def check_admin(req):
@@ -55,7 +48,10 @@ def check_admin(req):
 @app.route('/api/items', methods=['GET'])
 def get_items():
     conn = get_db()
-    items = conn.execute('SELECT * FROM items ORDER BY created_at DESC').fetchall()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM items ORDER BY created_at DESC')
+    items = cur.fetchall()
+    cur.close()
     conn.close()
     result = []
     for item in items:
@@ -71,14 +67,16 @@ def add_item():
     data = request.json
     photos = json.dumps(data.get('photos', []))
     conn = get_db()
-    cursor = conn.execute(
-        'INSERT INTO items (brand,name,cat,size,price,price_usd,cond,desc,emoji,photos,sold) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    cur = conn.cursor()
+    cur.execute(
+        'INSERT INTO items (brand,name,cat,size,price,price_usd,cond,desc,emoji,photos,sold) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
         (data['brand'], data['name'], data['cat'], data['size'],
          data['price'], data.get('priceUsd', 0), data['cond'],
          data.get('desc', ''), data.get('emoji', '📦'), photos, 0)
     )
-    item_id = cursor.lastrowid
+    item_id = cur.fetchone()['id']
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({'id': item_id, 'ok': True})
 
@@ -89,14 +87,16 @@ def update_item(item_id):
     data = request.json
     photos = json.dumps(data.get('photos', []))
     conn = get_db()
-    conn.execute(
-        'UPDATE items SET brand=?,name=?,cat=?,size=?,price=?,price_usd=?,cond=?,desc=?,emoji=?,photos=?,sold=? WHERE id=?',
+    cur = conn.cursor()
+    cur.execute(
+        'UPDATE items SET brand=%s,name=%s,cat=%s,size=%s,price=%s,price_usd=%s,cond=%s,desc=%s,emoji=%s,photos=%s,sold=%s WHERE id=%s',
         (data['brand'], data['name'], data['cat'], data['size'],
          data['price'], data.get('priceUsd', 0), data['cond'],
          data.get('desc', ''), data.get('emoji', '📦'), photos,
          data.get('sold', 0), item_id)
     )
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({'ok': True})
 
@@ -105,8 +105,10 @@ def delete_item(item_id):
     if not check_admin(request):
         return jsonify({'error': 'Unauthorized'}), 401
     conn = get_db()
-    conn.execute('DELETE FROM items WHERE id=?', (item_id,))
+    cur = conn.cursor()
+    cur.execute('DELETE FROM items WHERE id=%s', (item_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({'ok': True})
 
@@ -115,8 +117,10 @@ def toggle_sold(item_id):
     if not check_admin(request):
         return jsonify({'error': 'Unauthorized'}), 401
     conn = get_db()
-    conn.execute('UPDATE items SET sold = 1 - sold WHERE id=?', (item_id,))
+    cur = conn.cursor()
+    cur.execute('UPDATE items SET sold = 1 - sold WHERE id=%s', (item_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({'ok': True})
 
