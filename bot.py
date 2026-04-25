@@ -3,7 +3,7 @@ import logging
 import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ChatMemberStatus
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,7 +19,7 @@ dp = Dispatcher()
 async def is_subscribed(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(CHANNEL, user_id)
-        return member.status not in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED, ChatMemberStatus.BANNED]
+        return member.status not in ['left', 'kicked', 'banned']
     except:
         return False
 
@@ -28,7 +28,7 @@ async def is_subscribed(user_id: int) -> bool:
 async def cmd_start(message: types.Message):
     if not await is_subscribed(message.from_user.id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Подписаться на канал", url=f"https://t.me/orangeshopz")],
+            [InlineKeyboardButton(text="📢 Подписаться на канал", url="https://t.me/orangeshopz")],
             [InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub")]
         ])
         await message.answer(
