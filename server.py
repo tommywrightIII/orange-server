@@ -28,7 +28,7 @@ def init_db():
             price INTEGER NOT NULL,
             price_usd INTEGER DEFAULT 0,
             cond INTEGER NOT NULL,
-            desc TEXT,
+            description TEXT,
             emoji TEXT DEFAULT '📦',
             photos TEXT DEFAULT '[]',
             sold INTEGER DEFAULT 0,
@@ -57,6 +57,7 @@ def get_items():
     for item in items:
         d = dict(item)
         d['photos'] = json.loads(d['photos'] or '[]')
+        d['desc'] = d.pop('description', '')
         result.append(d)
     return jsonify(result)
 
@@ -69,7 +70,7 @@ def add_item():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'INSERT INTO items (brand,name,cat,size,price,price_usd,cond,desc,emoji,photos,sold) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+        'INSERT INTO items (brand,name,cat,size,price,price_usd,cond,description,emoji,photos,sold) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
         (data['brand'], data['name'], data['cat'], data['size'],
          data['price'], data.get('priceUsd', 0), data['cond'],
          data.get('desc', ''), data.get('emoji', '📦'), photos, 0)
@@ -89,7 +90,7 @@ def update_item(item_id):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'UPDATE items SET brand=%s,name=%s,cat=%s,size=%s,price=%s,price_usd=%s,cond=%s,desc=%s,emoji=%s,photos=%s,sold=%s WHERE id=%s',
+        'UPDATE items SET brand=%s,name=%s,cat=%s,size=%s,price=%s,price_usd=%s,cond=%s,description=%s,emoji=%s,photos=%s,sold=%s WHERE id=%s',
         (data['brand'], data['name'], data['cat'], data['size'],
          data['price'], data.get('priceUsd', 0), data['cond'],
          data.get('desc', ''), data.get('emoji', '📦'), photos,
