@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
@@ -81,7 +81,25 @@ async def cmd_admin(message: types.Message):
             web_app=WebAppInfo(url=admin_url)
         )
     ]])
-    await message.answer("Админ-панель 👇", reply_markup=kb)
+    await message.answer(
+        "Админ-панель 👇\n\n📸 Чтобы получить ссылку на фото — просто отправь мне фото",
+        reply_markup=kb
+    )
+
+
+@dp.message(F.photo)
+async def handle_photo(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    photo = message.photo[-1]
+    file = await bot.get_file(photo.file_id)
+    file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+
+    await message.answer(
+        f"✅ Ссылка на фото:\n\n<code>{file_url}</code>\n\nСкопируй и вставь в форму товара 👆",
+        parse_mode="HTML"
+    )
 
 
 async def main():
