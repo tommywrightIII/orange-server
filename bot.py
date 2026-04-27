@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -11,13 +13,65 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', 'ВАШ_ТОКЕН')
 MINI_APP_URL = "https://tommywrightiii.github.io/Orange-Market/index.html"
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '123456789'))
 CHANNEL = "@orangeshopz"
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Буфер для сбора фото из альбома
 photo_buffer = {}
 photo_timers = {}
+
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id BIGINT PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def save_user(user: types.User):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO users (id, username, first_name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+        ''', (user.id, user.username, user.first_name))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except:
+        pass
+
+
+def get_all_users():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('SELECT id FROM users')
+        users = [row['id'] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return users
+    except:
+        return []
+
+
+init_db()
 
 
 async def is_subscribed(user_id: int) -> bool:
@@ -30,6 +84,8 @@ async def is_subscribed(user_id: int) -> bool:
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    save_user(message.from_user)
+
     if not await is_subscribed(message.from_user.id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 Подписаться на канал", url="https://t.me/orangeshopz")],
@@ -55,6 +111,8 @@ async def cmd_start(message: types.Message):
 
 @dp.callback_query(lambda c: c.data == "check_sub")
 async def check_sub(callback: types.CallbackQuery):
+    save_user(callback.from_user)
+
     if not await is_subscribed(callback.from_user.id):
         await callback.answer("❌ Ты ещё не подписался на канал!", show_alert=True)
         return
@@ -85,10 +143,42 @@ async def cmd_admin(message: types.Message):
             web_app=WebAppInfo(url=admin_url)
         )
     ]])
+    users = get_all_users()
     await message.answer(
-        "Админ-панель 👇\n\n📸 Чтобы получить ссылки на фото — отправь одно или несколько фото",
+        f"Админ-панель 👇\n\n📸 Отправь фото — получишь ссылку\n📢 /broadcast текст — рассылка всем пользователям\n👥 Пользователей в базе: {len(users)}",
         reply_markup=kb
     )
+
+
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ Нет доступа.")
+        return
+
+    text = message.text.replace("/broadcast", "").strip()
+    if not text:
+        await message.answer("❌ Напиши текст после команды.\n\nПример:\n/broadcast Новый товар в каталоге! 🔥")
+        return
+
+    users = get_all_users()
+    if not users:
+        await message.answer("❌ Нет пользователей в базе.")
+        return
+
+    await message.answer(f"📢 Начинаю рассылку {len(users)} пользователям...")
+
+    sent = 0
+    failed = 0
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, text)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except:
+            failed += 1
+
+    await message.answer(f"✅ Рассылка завершена!\n✉️ Отправлено: {sent}\n❌ Не доставлено: {failed}")
 
 
 async def send_photo_links(chat_id: int, photos: list):
@@ -111,17 +201,13 @@ async def handle_photo(message: types.Message):
     chat_id = message.chat.id
 
     if media_group_id:
-        # Альбом — собираем все фото
         if media_group_id not in photo_buffer:
             photo_buffer[media_group_id] = []
-
         photo_buffer[media_group_id].append(file_url)
 
-        # Отменяем предыдущий таймер если есть
         if media_group_id in photo_timers:
             photo_timers[media_group_id].cancel()
 
-        # Ставим таймер на отправку через 1.5 сек
         async def delayed_send():
             await asyncio.sleep(1.5)
             urls = photo_buffer.pop(media_group_id, [])
@@ -132,7 +218,6 @@ async def handle_photo(message: types.Message):
         task = asyncio.create_task(delayed_send())
         photo_timers[media_group_id] = task
     else:
-        # Одиночное фото
         await send_photo_links(chat_id, [file_url])
 
 
